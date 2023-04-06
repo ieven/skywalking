@@ -21,40 +21,23 @@ package org.apache.skywalking.oap.meter.analyzer.dsl;
 import com.google.common.collect.Sets;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.analysis.meter.ScopeType;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @Slf4j
-@RunWith(Parameterized.class)
 public class ExpressionParsingTest {
-
-    @Parameterized.Parameter
-    public String name;
-
-    @Parameterized.Parameter(1)
-    public String expression;
-
-    @Parameterized.Parameter(2)
-    public ExpressionParsingContext want;
-
-    @Parameterized.Parameter(3)
-    public boolean isThrow;
-
-    @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
         return Arrays.asList(new Object[][] {
             {
                 "all",
-                "(foo - 1).tagEqual('bar', '1').sum(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr']).downsampling(LATEST)",
+                "(foo - 1).tagEqual('bar', '1').sum(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr'], Layer.GENERAL).downsampling(LATEST)",
                 ExpressionParsingContext.builder()
                                         .samples(Collections.singletonList("foo"))
                                         .scopeType(ScopeType.SERVICE)
@@ -67,7 +50,7 @@ public class ExpressionParsingTest {
             },
             {
                 "sumThenAvg",
-                "(foo - 1).tagEqual('bar', '1').sum(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr']).avg(['tt'])",
+                "(foo - 1).tagEqual('bar', '1').sum(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr'], Layer.GENERAL).avg(['tt'])",
                 ExpressionParsingContext.builder()
                                         .samples(Collections.singletonList("foo"))
                                         .scopeType(ScopeType.SERVICE)
@@ -80,7 +63,7 @@ public class ExpressionParsingTest {
             },
             {
                 "avgThenOthersThenSum",
-                "(foo - 1).tagEqual('bar', '1').avg(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr']).sum(['tt']).downsampling(SUM)",
+                "(foo - 1).tagEqual('bar', '1').avg(['tt']).irate().histogram().histogram_percentile([50,99]).service(['rr'], Layer.GENERAL).sum(['tt']).downsampling(SUM)",
                 ExpressionParsingContext.builder()
                                         .samples(Collections.singletonList("foo"))
                                         .scopeType(ScopeType.SERVICE)
@@ -93,7 +76,7 @@ public class ExpressionParsingTest {
             },
             {
                 "sameSamples",
-                "(node_cpu_seconds_total.sum(['node_identifier_host_name']) - node_cpu_seconds_total.tagEqual('mode', 'idle').sum(['node_identifier_host_name'])).service(['node_identifier_host_name']) ",
+                "(node_cpu_seconds_total.sum(['node_identifier_host_name']) - node_cpu_seconds_total.tagEqual('mode', 'idle').sum(['node_identifier_host_name'])).service(['node_identifier_host_name'], Layer.GENERAL) ",
                 ExpressionParsingContext.builder()
                                         .samples(Collections.singletonList("node_cpu_seconds_total"))
                                         .scopeType(ScopeType.SERVICE)
@@ -106,8 +89,12 @@ public class ExpressionParsingTest {
         });
     }
 
-    @Test
-    public void test() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("data")
+    public void test(String name,
+                     String expression,
+                     ExpressionParsingContext want,
+                     boolean isThrow) {
         Expression e = DSL.parse(expression);
         ExpressionParsingContext r = null;
         try {
@@ -122,6 +109,6 @@ public class ExpressionParsingTest {
         if (isThrow) {
             fail("Should throw something");
         }
-        assertThat(r, is(want));
+        assertThat(r).isEqualTo(want);
     }
 }

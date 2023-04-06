@@ -15,16 +15,18 @@ You can open set `SW_OAL_ENGINE_DEBUG=Y` at system env to see which classes are 
 Scripts should be named `*.oal`
 ```
 // Declare the metrics.
-METRICS_NAME = from(SCOPE.(* | [FIELD][,FIELD ...]))
-[.filter(FIELD OP [INT | STRING])]
+METRICS_NAME = from(CAST SCOPE.(* | [FIELD][,FIELD ...]))
+[.filter(CAST FIELD OP [INT | STRING])]
 .FUNCTION([PARAM][, PARAM ...])
 
 // Disable hard code 
 disable(METRICS_NAME);
 ```
 
-## Scope
-Primary **SCOPE**s are `All`, `Service`, `ServiceInstance`, `Endpoint`, `ServiceRelation`, `ServiceInstanceRelation`, and `EndpointRelation`.
+## From
+The **from** statement defines the data source of this OAL expression.
+
+Primary **SCOPE**s are `Service`, `ServiceInstance`, `Endpoint`, `ServiceRelation`, `ServiceInstanceRelation`, and `EndpointRelation`.
 There are also some secondary scopes which belong to a primary scope. 
 
 See [Scope Definitions](scope-definitions.md), where you can find all existing Scopes and Fields.
@@ -58,13 +60,13 @@ In this case, all input represents requests of each endpoint, and the condition 
 In this case, all input represents requests of each browser app traffic, the `numerator` condition is `trafficCategory == BrowserAppTrafficCategory.FIRST_ERROR` and `denominator` condition is `trafficCategory == BrowserAppTrafficCategory.NORMAL`.
 Parameter (1) is the `numerator` condition.
 Parameter (2) is the `denominator` condition.
-- `sum`. The sum of calls per scope entity.
-> service_calls_sum = from(Service.*).sum();
+- `count`. The sum of calls per scope entity.
+> service_calls_sum = from(Service.*).count();
 
 In this case, the number of calls of each service. 
 
 - `histogram`. See [Heatmap in WIKI](https://en.wikipedia.org/wiki/Heat_map).
-> all_heatmap = from(All.latency).histogram(100, 20);
+> service_heatmap = from(Service.latency).histogram(100, 20);
 
 In this case, the thermodynamic heatmap of all incoming requests. 
 Parameter (1) is the precision of latency calculation, such as in the above case, where 113ms and 193ms are considered the same in the 101-200ms group.
@@ -78,12 +80,10 @@ Parameter (1) is the service name, which reflects the Apdex threshold value load
 Parameter (2) is the status of this request. The status(success/failure) reflects the Apdex calculation.
 
 - `p99`, `p95`, `p90`, `p75`, `p50`. See [percentile in WIKI](https://en.wikipedia.org/wiki/Percentile).
-> all_percentile = from(All.latency).percentile(10);
+> service_percentile = from(Service.latency).percentile(10);
 
 **percentile** is the first multiple-value metric, which has been introduced since 7.0.0. As a metric with multiple values, it could be queried through the `getMultipleLinearIntValues` GraphQL query.
 In this case, see `p99`, `p95`, `p90`, `p75`, and `p50` of all incoming requests. The parameter is precise to a latency at p99, such as in the above case, and 120ms and 124ms are considered to produce the same response time.
-Before 7.0.0, `p99`, `p95`, `p90`, `p75`, `p50` func(s) are used to calculate metrics separately. They are still supported in 7.x, but they are no longer recommended and are not included in the current official OAL script. 
-> all_p99 = from(All.latency).p99(10);
 
 In this case, the p99 value of all incoming requests. The parameter is precise to a latency at p99, such as in the above case, and 120ms and 124ms are considered to produce the same response time.
 
@@ -94,6 +94,23 @@ The metrics name for storage implementor, alarm and query modules. The type infe
 All metrics data will be grouped by Scope.ID and min-level TimeBucket. 
 
 - In the `Endpoint` scope, the Scope.ID is same as the Endpoint ID (i.e. the unique ID based on service and its endpoint).
+
+## Cast
+Fields of source are static type. In some cases, the type required by the filter expression and aggregation function doesn't 
+match the type in the source, such as tag value in the source is String type, most aggregation calculation requires numeric.
+
+Cast expression is provided to do so. 
+- `(str->long)` or `(long)`, cast string type into long.
+- `(str->int)` or `(int)`, cast string type into int.
+
+```
+mq_consume_latency = from((str->long)Service.tag["transmission.latency"]).longAvg(); // the value of tag is string type.
+```
+
+Cast statement is supported in
+1. **From statement**. `from((cast)source.attre)`. 
+2. **Filter expression**. `.filter((cast)tag["transmission.latency"] > 0)`
+3. **Aggregation function parameter**. `.longAvg((cast)strField1== 1,  (cast)strField2)`
 
 ## Disable
 `Disable` is an advanced statement in OAL, which is only used in certain cases.
@@ -112,7 +129,7 @@ endpoint_p99 = from(Endpoint.latency).filter(name in ("Endpoint1", "Endpoint2"))
 serv_Endpoint_p99 = from(Endpoint.latency).filter(name like "serv%").summary(0.99)
 
 // Calculate the avg response time of each Endpoint
-endpoint_avg = from(Endpoint.latency).avg()
+endpoint_resp_time = from(Endpoint.latency).avg()
 
 // Calculate the p50, p75, p90, p95 and p99 of each Endpoint by 50 ms steps.
 endpoint_percentile = from(Endpoint.latency).percentile(10)
@@ -121,19 +138,22 @@ endpoint_percentile = from(Endpoint.latency).percentile(10)
 endpoint_success = from(Endpoint.*).filter(status == true).percent()
 
 // Calculate the sum of response code in [404, 500, 503], for each service.
-endpoint_abnormal = from(Endpoint.*).filter(responseCode in [404, 500, 503]).sum()
+endpoint_abnormal = from(Endpoint.*).filter(httpResponseStatusCode in [404, 500, 503]).count()
 
 // Calculate the sum of request type in [RequestType.RPC, RequestType.gRPC], for each service.
-endpoint_rpc_calls_sum = from(Endpoint.*).filter(type in [RequestType.RPC, RequestType.gRPC]).sum()
+endpoint_rpc_calls_sum = from(Endpoint.*).filter(type in [RequestType.RPC, RequestType.gRPC]).count()
 
 // Calculate the sum of endpoint name in ["/v1", "/v2"], for each service.
-endpoint_url_sum = from(Endpoint.*).filter(endpointName in ["/v1", "/v2"]).sum()
+endpoint_url_sum = from(Endpoint.*).filter(name in ["/v1", "/v2"]).count()
 
 // Calculate the sum of calls for each service.
 endpoint_calls = from(Endpoint.*).count()
 
 // Calculate the CPM with the GET method for each service.The value is made up with `tagKey:tagValue`.
+// Option 1, use `tags contain`.
 service_cpm_http_get = from(Service.*).filter(tags contain "http.method:GET").cpm()
+// Option 2, use `tag[key]`.
+service_cpm_http_get = from(Service.*).filter(tag["http.method"] == "GET").cpm();
 
 // Calculate the CPM with the HTTP method except for the GET method for each service.The value is made up with `tagKey:tagValue`.
 service_cpm_http_other = from(Service.*).filter(tags not contain "http.method:GET").cpm()

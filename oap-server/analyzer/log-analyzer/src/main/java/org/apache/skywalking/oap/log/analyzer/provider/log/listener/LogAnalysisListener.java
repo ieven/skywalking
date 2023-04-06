@@ -17,6 +17,7 @@
 
 package org.apache.skywalking.oap.log.analyzer.provider.log.listener;
 
+import com.google.protobuf.Message;
 import org.apache.skywalking.apm.network.logging.v3.LogData;
 
 /**
@@ -24,8 +25,7 @@ import org.apache.skywalking.apm.network.logging.v3.LogData;
  */
 public interface LogAnalysisListener {
     /**
-     * The last step of the analysis process. Typically, the implementations forward the analysis results to the source
-     * receiver.
+     * The last step of the analysis process. Typically, the implementations execute corresponding DSL.
      */
     void build();
 
@@ -33,5 +33,5 @@ public interface LogAnalysisListener {
      * Parse the raw data from the probe.
      * @return {@code this} for chaining.
      */
-    LogAnalysisListener parse(LogData.Builder logData);
+    LogAnalysisListener parse(LogData.Builder logData, final Message extraLog);
 }

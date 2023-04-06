@@ -25,7 +25,6 @@ import io.grpc.ServerServiceDefinition;
 import io.grpc.netty.NettyServerBuilder;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -49,6 +48,7 @@ public class GRPCServer implements Server {
     private NettyServerBuilder nettyServerBuilder;
     private String certChainFile;
     private String privateKeyFile;
+    private String trustedCAsFile;
     private DynamicSslContext sslContext;
     private int threadPoolSize = Runtime.getRuntime().availableProcessors() * 4;
     private int threadPoolQueueSize = 10000;
@@ -82,26 +82,17 @@ public class GRPCServer implements Server {
      * @param certChainFile  `server.crt` file
      * @param privateKeyFile `server.pem` file
      */
-    public GRPCServer(String host, int port, String certChainFile, String privateKeyFile) {
+    public GRPCServer(String host, int port, String certChainFile, String privateKeyFile, String trustedCAsFile) {
         this(host, port);
         this.certChainFile = certChainFile;
         this.privateKeyFile = privateKeyFile;
-    }
-
-    @Override
-    public String hostPort() {
-        return host + ":" + port;
-    }
-
-    @Override
-    public String serverClassify() {
-        return "Google-RPC";
+        this.trustedCAsFile = trustedCAsFile;
     }
 
     @Override
     public void initialize() {
         InetSocketAddress address = new InetSocketAddress(host, port);
-        ArrayBlockingQueue blockingQueue = new ArrayBlockingQueue(threadPoolQueueSize);
+        ArrayBlockingQueue<Runnable> blockingQueue = new ArrayBlockingQueue<>(threadPoolQueueSize);
         ExecutorService executor = new ThreadPoolExecutor(
             threadPoolSize, threadPoolSize, 60, TimeUnit.SECONDS, blockingQueue,
             new CustomThreadFactory("grpcServerPool"), new CustomRejectedExecutionHandler()
@@ -111,7 +102,7 @@ public class GRPCServer implements Server {
                                                .maxInboundMessageSize(maxMessageSize)
                                                .executor(executor);
         if (!Strings.isNullOrEmpty(privateKeyFile) && !Strings.isNullOrEmpty(certChainFile)) {
-            sslContext = DynamicSslContext.forServer(privateKeyFile, certChainFile);
+            sslContext = DynamicSslContext.forServer(privateKeyFile, certChainFile, trustedCAsFile);
             nettyServerBuilder.sslContext(sslContext);
         }
         log.info("Server started, host {} listening on {}", host, port);
@@ -151,20 +142,4 @@ public class GRPCServer implements Server {
         nettyServerBuilder.intercept(serverInterceptor);
     }
 
-    @Override
-    public boolean isSSLOpen() {
-        return !Strings.isNullOrEmpty(privateKeyFile) && !Strings.isNullOrEmpty(certChainFile);
-    }
-
-    @Override
-    public boolean isStatusEqual(Server target) {
-        if (this == target)
-            return true;
-        if (target == null || getClass() != target.getClass())
-            return false;
-        GRPCServer that = (GRPCServer) target;
-        return port == that.port && Objects.equals(host, that.host) && Objects.equals(
-            certChainFile, that.certChainFile) && Objects
-            .equals(privateKeyFile, that.privateKeyFile);
-    }
 }

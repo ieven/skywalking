@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.apache.skywalking.oap.server.core.query.enumeration.Scope;
 import org.apache.skywalking.oap.server.core.query.sql.Function;
 
 /**
@@ -32,7 +33,8 @@ import org.apache.skywalking.oap.server.core.query.sql.Function;
 public enum ValueColumnMetadata {
     INSTANCE;
 
-    private Map<String, ValueColumn> mapping = new HashMap<>();
+    private final Map<String, ValueColumn> mapping = new HashMap<>();
+    private final HashMap<String, String> columnNameOverrideRule = new HashMap<>();
 
     /**
      * Register the new metadata for the given model name.
@@ -46,11 +48,16 @@ public enum ValueColumnMetadata {
         mapping.putIfAbsent(modelName, new ValueColumn(valueCName, dataType, function, defaultValue, scopeId));
     }
 
+    public void overrideColumnName(String oldName, String newName) {
+        columnNameOverrideRule.put(oldName, newName);
+    }
+
     /**
      * Fetch the value column name of the given metrics name.
      */
     public String getValueCName(String metricsName) {
-        return findColumn(metricsName).valueCName;
+        final String valueCName = findColumn(metricsName).valueCName;
+        return columnNameOverrideRule.getOrDefault(valueCName, valueCName);
     }
 
     /**
@@ -78,6 +85,10 @@ public enum ValueColumnMetadata {
         return mapping;
     }
 
+    public Scope getScope(String metricsName) {
+        return Scope.Finder.valueOf(findColumn(metricsName).scopeId);
+    }
+
     private ValueColumn findColumn(String metricsName) {
         ValueColumn column = mapping.get(metricsName);
         if (column == null) {
@@ -88,7 +99,7 @@ public enum ValueColumnMetadata {
 
     @Getter
     @RequiredArgsConstructor
-    public class ValueColumn {
+    public static class ValueColumn {
         private final String valueCName;
         private final Column.ValueDataType dataType;
         private final Function function;

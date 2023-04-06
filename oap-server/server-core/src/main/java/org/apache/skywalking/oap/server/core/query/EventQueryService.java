@@ -26,8 +26,11 @@ import org.apache.skywalking.oap.server.core.storage.query.IEventQueryDAO;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.library.module.Service;
 
+import java.util.List;
+import java.util.Objects;
+
 import static java.util.Objects.isNull;
-import static org.apache.skywalking.apm.util.StringUtil.isBlank;
+import static org.apache.skywalking.oap.server.library.util.StringUtil.isBlank;
 
 public class EventQueryService implements Service {
 
@@ -51,6 +54,14 @@ public class EventQueryService implements Service {
             throw new IllegalArgumentException("time field is required when uuid is absent.");
         }
         return getDao().queryEvents(condition);
+    }
+
+    public Events queryEvents(final List<EventQueryCondition> conditions) throws Exception {
+        EventQueryCondition condition = conditions.stream().filter(c -> isBlank(c.getUuid()) && isDurationInvalid(c.getTime())).findFirst().orElse(null);
+        if (Objects.nonNull(condition)) {
+            throw new IllegalArgumentException("time field is required when uuid is absent.");
+        }
+        return getDao().queryEvents(conditions);
     }
 
     boolean isDurationInvalid(final Duration duration) {

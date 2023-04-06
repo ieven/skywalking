@@ -24,6 +24,7 @@ import lombok.Setter;
 import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.apache.skywalking.oap.server.core.remote.data.StreamData;
 import org.apache.skywalking.oap.server.core.storage.StorageData;
+import org.apache.skywalking.oap.server.core.storage.StorageID;
 import org.apache.skywalking.oap.server.core.storage.annotation.Column;
 
 /**
@@ -34,29 +35,30 @@ import org.apache.skywalking.oap.server.core.storage.annotation.Column;
     "timeBucket"
 })
 public abstract class Metrics extends StreamData implements StorageData {
-
-    public static final String TIME_BUCKET = "time_bucket";
     public static final String ENTITY_ID = "entity_id";
+    public static final String ID = "id";
 
     /**
      * Time attribute
      */
     @Getter
     @Setter
-    @Column(columnName = TIME_BUCKET)
+    @Column(name = TIME_BUCKET)
     private long timeBucket;
 
     /**
-     * Time in the cache, only work when MetricsPersistentWorker#enableDatabaseSession == true.
+     * The last update timestamp of the cache.
+     * The `update` means it is combined with the new metrics. This update doesn't mean the database level update ultimately.
      */
     @Getter
-    private long survivalTime = 0L;
+    private long lastUpdateTimestamp = 0L;
 
     /**
      * Merge the given metrics instance, these two must be the same metrics type.
      *
      * @param metrics to be merged
-     * @return {@code true} if the combined metrics should be continuously processed. {@code false} means it should be abandoned, and the implementation needs to keep the data unaltered in this case.
+     * @return {@code true} if the combined metrics should be continuously processed. {@code false} means it should be
+     * abandoned, and the implementation needs to keep the data unaltered in this case.
      */
     public abstract boolean combine(Metrics metrics);
 
@@ -80,12 +82,21 @@ public abstract class Metrics extends StreamData implements StorageData {
     public abstract Metrics toDay();
 
     /**
-     * Extend the {@link #survivalTime}
+     * Set the last update timestamp
      *
-     * @param value to extend
+     * @param timestamp last update timestamp
      */
-    public void extendSurvivalTime(long value) {
-        survivalTime += value;
+    public void setLastUpdateTimestamp(long timestamp) {
+        lastUpdateTimestamp = timestamp;
+    }
+
+    /**
+     * @param timestamp        of current time
+     * @param expiredThreshold represents the duration between last update time and the time point removing from cache.
+     * @return true means this metrics should be removed from cache.
+     */
+    public boolean isExpired(long timestamp, long expiredThreshold) {
+        return timestamp - lastUpdateTimestamp > expiredThreshold;
     }
 
     public long toTimeBucketInHour() {
@@ -131,4 +142,16 @@ public abstract class Metrics extends StreamData implements StorageData {
     private boolean isDayBucket() {
         return TimeBucket.isDayBucket(timeBucket);
     }
+
+    private volatile StorageID id;
+
+    @Override
+    public StorageID id() {
+        if (id == null) {
+            id = id0();
+        }
+        return id;
+    }
+
+    protected abstract StorageID id0();
 }

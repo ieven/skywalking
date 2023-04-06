@@ -23,6 +23,7 @@ import org.apache.skywalking.oap.server.core.CoreModule;
 import org.apache.skywalking.oap.server.core.CoreModuleProvider;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
 import org.apache.skywalking.oap.server.core.analysis.StreamDefinition;
+import org.apache.skywalking.oap.server.core.analysis.meter.MeterEntity;
 import org.apache.skywalking.oap.server.core.analysis.meter.MeterSystem;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.AcceptableValue;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgFunction;
@@ -30,14 +31,20 @@ import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgHist
 import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgHistogramPercentileFunction;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgLabeledFunction;
 import org.apache.skywalking.oap.server.core.analysis.worker.MetricsStreamProcessor;
+import org.apache.skywalking.oap.server.core.config.NamingControl;
+import org.apache.skywalking.oap.server.core.config.group.EndpointNameGrouping;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.receiver.zabbix.provider.config.ZabbixConfig;
 import org.apache.skywalking.oap.server.receiver.zabbix.provider.config.ZabbixConfigs;
-import org.junit.Assert;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
 import org.powermock.reflect.Whitebox;
 
 import java.util.ArrayList;
@@ -49,8 +56,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
+import static org.mockito.quality.Strictness.LENIENT;
 
-@RunWith(MockitoJUnitRunner.Silent.class)
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = LENIENT)
 public class ZabbixMetricsTest extends ZabbixBaseTest {
 
     protected CoreModuleProvider moduleProvider;
@@ -58,6 +67,22 @@ public class ZabbixMetricsTest extends ZabbixBaseTest {
     protected MeterSystem meterSystem;
 
     private List<AcceptableValue> values = new ArrayList<>();
+
+    @BeforeAll
+    public static void setup() {
+        MeterEntity.setNamingControl(
+            new NamingControl(512, 512, 512, new EndpointNameGrouping()));
+    }
+
+    @BeforeEach
+    public void beforeEach() throws Throwable {
+        setupMetrics();
+    }
+
+    @AfterAll
+    public static void tearDown() {
+        MeterEntity.setNamingControl(null);
+    }
 
     @Override
     public void setupMetrics() throws Throwable {
@@ -116,16 +141,16 @@ public class ZabbixMetricsTest extends ZabbixBaseTest {
         assertZabbixAgentDataResponse(2);
 
         // Verify meter system received data
-        Assert.assertEquals(1, values.size());
+        Assertions.assertEquals(1, values.size());
         AvgLabeledFunction avgLabeledFunction = (AvgLabeledFunction) values.get(0);
         String serviceId = IDManager.ServiceID.buildId("zabbix::test-01-hostname", true);
-        Assert.assertEquals(serviceId, avgLabeledFunction.getEntityId());
-        Assert.assertEquals(serviceId, avgLabeledFunction.getServiceId());
-        Assert.assertEquals(1, avgLabeledFunction.getSummation().get("avg1"), 0.0);
-        Assert.assertEquals(2, avgLabeledFunction.getSummation().get("avg5"), 0.0);
-        Assert.assertEquals(3, avgLabeledFunction.getSummation().get("avg15"), 0.0);
-        Assert.assertEquals(1, avgLabeledFunction.getCount().get("avg1"), 0.0);
-        Assert.assertEquals(1, avgLabeledFunction.getCount().get("avg5"), 0.0);
-        Assert.assertEquals(1, avgLabeledFunction.getCount().get("avg15"), 0.0);
+        Assertions.assertEquals(serviceId, avgLabeledFunction.getEntityId());
+        Assertions.assertEquals(serviceId, avgLabeledFunction.getServiceId());
+        Assertions.assertEquals(1, avgLabeledFunction.getSummation().get("avg1"), 0.0);
+        Assertions.assertEquals(2, avgLabeledFunction.getSummation().get("avg5"), 0.0);
+        Assertions.assertEquals(3, avgLabeledFunction.getSummation().get("avg15"), 0.0);
+        Assertions.assertEquals(1, avgLabeledFunction.getCount().get("avg1"), 0.0);
+        Assertions.assertEquals(1, avgLabeledFunction.getCount().get("avg5"), 0.0);
+        Assertions.assertEquals(1, avgLabeledFunction.getCount().get("avg15"), 0.0);
     }
 }

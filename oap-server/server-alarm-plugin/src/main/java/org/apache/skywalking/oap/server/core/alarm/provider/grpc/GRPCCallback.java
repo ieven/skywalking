@@ -25,6 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.alarm.AlarmCallback;
 import org.apache.skywalking.oap.server.core.alarm.AlarmMessage;
 import org.apache.skywalking.oap.server.core.alarm.grpc.AlarmServiceGrpc;
+import org.apache.skywalking.oap.server.core.alarm.grpc.AlarmTags;
+import org.apache.skywalking.oap.server.core.alarm.grpc.KeyStringValuePair;
 import org.apache.skywalking.oap.server.core.alarm.grpc.Response;
 import org.apache.skywalking.oap.server.core.alarm.provider.AlarmRulesWatcher;
 import org.apache.skywalking.oap.server.library.client.grpc.GRPCClient;
@@ -58,18 +60,14 @@ public class GRPCCallback implements AlarmCallback {
     @Override
     public void doAlarm(List<AlarmMessage> alarmMessage) {
 
-        if (alarmSetting == null || alarmSetting.isEmptySetting()) {
-            return;
-        }
-
         // recreate gRPC client and stub if host and port configuration changed.
         onGRPCAlarmSettingUpdated(alarmRulesWatcher.getGrpchookSetting());
 
-        GRPCStreamStatus status = new GRPCStreamStatus();
-
-        if (alarmServiceStub == null) {
+        if (alarmSetting == null || alarmSetting.isEmptySetting() || alarmServiceStub == null) {
             return;
         }
+
+        GRPCStreamStatus status = new GRPCStreamStatus();
 
         StreamObserver<org.apache.skywalking.oap.server.core.alarm.grpc.AlarmMessage> streamObserver =
             alarmServiceStub.withDeadlineAfter(10, TimeUnit.SECONDS).doAlarm(new StreamObserver<Response>() {
@@ -107,7 +105,9 @@ public class GRPCCallback implements AlarmCallback {
             builder.setRuleName(message.getRuleName());
             builder.setAlarmMessage(message.getAlarmMessage());
             builder.setStartTime(message.getStartTime());
-
+            AlarmTags.Builder alarmTagsBuilder = AlarmTags.newBuilder();
+            message.getTags().forEach(m -> alarmTagsBuilder.addData(KeyStringValuePair.newBuilder().setKey(m.getKey()).setValue(m.getValue()).build()));
+            builder.setTags(alarmTagsBuilder.build());
             streamObserver.onNext(builder.build());
         });
 
@@ -152,6 +152,7 @@ public class GRPCCallback implements AlarmCallback {
         }
 
         if (!grpcAlarmSetting.equals(alarmSetting)) {
+            alarmSetting = grpcAlarmSetting;
             if (grpcClient != null) {
                 grpcClient.shutdown();
             }

@@ -38,6 +38,15 @@ public class DefaultScopeDefine {
      * <p>
      * If you want to extend the scope, recommend to start with 10,000.
      */
+
+    /**
+     * @since 9.0.0
+     */
+    public static final int UNKNOWN = 0;
+    /**
+     * @since Deprecated from 9.0.0
+     */
+    @Deprecated
     public static final int ALL = 0;
     public static final int SERVICE = 1;
     public static final int SERVICE_INSTANCE = 2;
@@ -58,7 +67,9 @@ public class DefaultScopeDefine {
     public static final int SERVICE_INSTANCE_CLR_THREAD = 21;
     public static final int ENVOY_INSTANCE_METRIC = 22;
     public static final int ZIPKIN_SPAN = 23;
+    @Deprecated
     public static final int JAEGER_SPAN = 24;
+    @Deprecated
     public static final int HTTP_ACCESS_LOG = 25;
     public static final int PROFILE_TASK = 26;
     public static final int PROFILE_TASK_LOG = 27;
@@ -83,6 +94,37 @@ public class DefaultScopeDefine {
 
     public static final int EVENT = 43;
 
+    public static final int SERVICE_INSTANCE_JVM_CLASS = 44;
+
+    public static final int PROCESS = 45;
+    public static final int EBPF_PROFILING_TASK = 46;
+    public static final int EBPF_PROFILING_SCHEDULE = 47;
+    public static final int EBPF_PROFILING_DATA = 48;
+    public static final int SERVICE_LABEL = 49;
+    public static final int TAG_AUTOCOMPLETE = 50;
+    public static final int ZIPKIN_SERVICE = 51;
+    public static final int ZIPKIN_SERVICE_SPAN = 52;
+    public static final int ZIPKIN_SERVICE_RELATION = 53;
+    public static final int PROCESS_RELATION = 54;
+    public static final int CACHE_ACCESS = 55;
+    public static final int CACHE_SLOW_ACCESS = 56;
+
+    public static final int TCP_SERVICE = 57;
+    public static final int TCP_SERVICE_INSTANCE = 58;
+    public static final int TCP_SERVICE_RELATION = 59;
+    public static final int TCP_SERVICE_INSTANCE_RELATION = 60;
+    public static final int TCP_SERVICE_INSTANCE_UPDATE = 61;
+    public static final int SAMPLED_SLOW_TRACE = 62;
+
+    public static final int MESSAGE_QUEUE_ACCESS = 63;
+    public static final int MESSAGE_QUEUE_ENDPOINT_ACCESS = 64;
+
+    public static final int SPAN_ATTACHED_EVENT = 65;
+    public static final int SAMPLED_STATUS_4XX_TRACE = 66;
+    public static final int SAMPLED_STATUS_5XX_TRACE = 67;
+
+    public static final int CONTINUOUS_PROFILING_POLICY = 68;
+
     /**
      * Catalog of scope, the metrics processor could use this to group all generated metrics by oal rt.
      */
@@ -92,6 +134,8 @@ public class DefaultScopeDefine {
     public static final String SERVICE_RELATION_CATALOG_NAME = "SERVICE_RELATION";
     public static final String SERVICE_INSTANCE_RELATION_CATALOG_NAME = "SERVICE_INSTANCE_RELATION";
     public static final String ENDPOINT_RELATION_CATALOG_NAME = "ENDPOINT_RELATION";
+    public static final String PROCESS_CATALOG_NAME = "PROCESS";
+    public static final String PROCESS_RELATION_CATALOG_NAME = "PROCESS_RELATION";
 
     private static final Map<Integer, Boolean> SERVICE_CATALOG = new HashMap<>();
     private static final Map<Integer, Boolean> SERVICE_INSTANCE_CATALOG = new HashMap<>();
@@ -99,6 +143,8 @@ public class DefaultScopeDefine {
     private static final Map<Integer, Boolean> SERVICE_RELATION_CATALOG = new HashMap<>();
     private static final Map<Integer, Boolean> SERVICE_INSTANCE_RELATION_CATALOG = new HashMap<>();
     private static final Map<Integer, Boolean> ENDPOINT_RELATION_CATALOG = new HashMap<>();
+    private static final Map<Integer, Boolean> PROCESS_CATALOG = new HashMap<>();
+    private static final Map<Integer, Boolean> PROCESS_RELATION_CATALOG = new HashMap<>();
 
     @Setter
     private static boolean ACTIVE_EXTRA_MODEL_COLUMNS = false;
@@ -131,7 +177,7 @@ public class DefaultScopeDefine {
      * @param declaration   includes the definition.
      * @param originalClass represents the class having the {@link ScopeDeclaration} annotation
      */
-    private static final void addNewScope(ScopeDeclaration declaration, Class originalClass) {
+    private static void addNewScope(ScopeDeclaration declaration, Class originalClass) {
         int id = declaration.id();
         if (ID_2_NAME.containsKey(id)) {
             throw new UnexpectedException(
@@ -200,6 +246,12 @@ public class DefaultScopeDefine {
             case ENDPOINT_RELATION_CATALOG_NAME:
                 ENDPOINT_RELATION_CATALOG.put(id, Boolean.TRUE);
                 break;
+            case PROCESS_CATALOG_NAME:
+                PROCESS_CATALOG.put(id, Boolean.TRUE);
+                break;
+            case PROCESS_RELATION_CATALOG_NAME:
+                PROCESS_RELATION_CATALOG.put(id, Boolean.TRUE);
+                break;
         }
     }
 
@@ -241,7 +293,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs service catalog
+     * Check whether the given scope ID belongs service catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #SERVICE_CATALOG_NAME}
@@ -251,7 +303,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs service instance catalog
+     * Check whether the given scope ID belongs service instance catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #SERVICE_INSTANCE_CATALOG_NAME}
@@ -261,7 +313,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs endpoint catalog
+     * Check whether the given scope ID belongs endpoint catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #ENDPOINT_CATALOG_NAME}
@@ -271,7 +323,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs service relation catalog
+     * Check whether the given scope ID belongs service relation catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #SERVICE_RELATION_CATALOG_NAME}
@@ -281,7 +333,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs service instance relation catalog
+     * Check whether the given scope ID belongs service instance relation catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #SERVICE_INSTANCE_RELATION_CATALOG_NAME}
@@ -291,7 +343,7 @@ public class DefaultScopeDefine {
     }
 
     /**
-     * Check whether current service belongs endpoint relation catalog
+     * Check whether the given scope ID belongs endpoint relation catalog
      *
      * @param scopeId represents an existing scope id.
      * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #ENDPOINT_RELATION_CATALOG_NAME}
@@ -301,10 +353,30 @@ public class DefaultScopeDefine {
     }
 
     /**
+     * Check whether the given scope ID belongs process catalog
+     *
+     * @param scopeId represents an existing scope id.
+     * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #PROCESS_CATALOG_NAME}
+     */
+    public static boolean inProcessCatalog(int scopeId) {
+        return PROCESS_CATALOG.containsKey(scopeId);
+    }
+
+    /**
+     * Check whether the given scope ID belongs process relation catalog
+     *
+     * @param scopeId represents an existing scope id.
+     * @return true is current scope set {@link ScopeDeclaration#catalog()} == {@link #PROCESS_RELATION_CATALOG_NAME}
+     */
+    public static boolean inProcessRelationCatalog(int scopeId) {
+        return PROCESS_RELATION_CATALOG.containsKey(scopeId);
+    }
+
+    /**
      * Get the catalog string name of the given scope
      *
      * @param scope id of the source scope.
-     * @return literal string name of the catalog owning the scope.
+     * @return literal string name of the catalog owning the scope. Return `ALL` by default.
      */
     public static String catalogOf(int scope) {
         if (inServiceCatalog(scope)) {
@@ -325,7 +397,13 @@ public class DefaultScopeDefine {
         if (inEndpointRelationCatalog(scope)) {
             return ENDPOINT_RELATION_CATALOG_NAME;
         }
-        return "UNKNOWN";
+        if (inProcessCatalog(scope)) {
+            return PROCESS_CATALOG_NAME;
+        }
+        if (inProcessRelationCatalog(scope)) {
+            return PROCESS_RELATION_CATALOG_NAME;
+        }
+        return "ALL";
     }
 
     /**

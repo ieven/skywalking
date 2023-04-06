@@ -20,59 +20,106 @@ package org.apache.skywalking.oap.meter.analyzer.dsl;
 
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
 import java.util.Collection;
 
 import static com.google.common.collect.ImmutableMap.of;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @Slf4j
-@RunWith(Parameterized.class)
 public class TagFilterTest {
-
-    @Parameterized.Parameter
-    public String name;
-
-    @Parameterized.Parameter(1)
-    public ImmutableMap<String, SampleFamily> input;
-
-    @Parameterized.Parameter(2)
-    public String expression;
-
-    @Parameterized.Parameter(3)
-    public Result want;
-
-    @Parameterized.Parameter(4)
-    public boolean isThrow;
-
-    @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
+        final SampleFamily sf =
+            SampleFamilyBuilder.newBuilder(
+                Sample.builder().labels(of("idc", "t2")).value(50).name("http_success_request").build(),
+                Sample.builder()
+                      .labels(of("idc", "t3", "region", "cn", "svc", "catalog"))
+                      .value(50)
+                      .name("http_success_request")
+                      .build(),
+                Sample.builder()
+                      .labels(of("idc", "t1", "region", "us", "svc", "product"))
+                      .value(50)
+                      .name("http_success_request")
+                      .build(),
+                Sample.builder()
+                      .labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1"))
+                      .name("http_success_request")
+                      .value(50)
+                      .build(),
+                Sample.builder()
+                      .labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1"))
+                      .name("http_success_request")
+                      .value(3)
+                      .build()
+            ).build();
         return Arrays.asList(new Object[][] {
             {
-                "default",
-                of("instance_cpu_percentage", SampleFamily.EMPTY),
-                "instance_cpu_percentage",
-                Result.fail("Parsed result is an EMPTY sample family"),
+                "tagEqual",
+                of("http_success_request", sf),
+                "http_success_request.tagEqual('idc', 't3')",
+                Result.success(SampleFamilyBuilder.newBuilder(
+                    Sample.builder()
+                          .labels(of("idc", "t3", "region", "cn", "svc", "catalog"))
+                          .value(50)
+                          .name("http_success_request")
+                          .build(),
+                    Sample.builder()
+                          .labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1"))
+                          .name("http_success_request")
+                          .value(3)
+                          .build()
+                ).build()),
                 false,
-            },
+                },
             {
-                "single-value",
-                of("instance_cpu_percentage", SampleFamilyBuilder.newBuilder(Sample.builder().value(1600592418480.0).build()).build()),
-                "instance_cpu_percentage",
-                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().value(1600592418480.0).build()).build()),
+                "tagNotEqual",
+                of("http_success_request", sf),
+                "http_success_request.tagNotEqual('idc', 't1')",
+                Result.success(SampleFamilyBuilder.newBuilder(
+                    Sample.builder().labels(of("idc", "t2")).value(50).name("http_success_request").build(),
+                    Sample.builder()
+                          .labels(of("idc", "t3", "region", "cn", "svc", "catalog"))
+                          .value(50)
+                          .name("http_success_request")
+                          .build(),
+                    Sample.builder()
+                          .labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1"))
+                          .name("http_success_request")
+                          .value(3)
+                          .build()
+                ).build()),
                 false,
-            },
-        });
+                },
+            {
+                "tagMatch",
+                of("http_success_request", sf),
+                "http_success_request.tagMatch('idc', 't1|t2|t3')",
+                Result.success(sf),
+                false,
+                },
+            {
+                "tagNotMatch",
+                of("http_success_request", sf),
+                "http_success_request.tagNotMatch('idc', 't1|t3')",
+                Result.success(SampleFamilyBuilder.newBuilder(
+                    Sample.builder().labels(of("idc", "t2")).value(50).name("http_success_request").build()).build()),
+                false,
+                },
+            });
     }
 
-    @Test
-    public void test() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("data")
+    public void test(String name,
+                     ImmutableMap<String, SampleFamily> input,
+                     String expression,
+                     Result want,
+                     boolean isThrow) {
         Expression e = DSL.parse(expression);
         Result r = null;
         try {
@@ -87,6 +134,6 @@ public class TagFilterTest {
         if (isThrow) {
             fail("Should throw something");
         }
-        assertThat(r, is(want));
+        assertThat(r).isEqualTo(want);
     }
 }

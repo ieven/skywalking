@@ -19,11 +19,10 @@
 package org.apache.skywalking.oap.meter.analyzer.dsl;
 
 import com.google.common.collect.ImmutableMap;
-import java.util.HashMap;
-import java.util.Map;
 import org.apache.skywalking.oap.meter.analyzer.Analyzer;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
 import org.apache.skywalking.oap.server.core.analysis.StreamDefinition;
+import org.apache.skywalking.oap.server.core.analysis.meter.MeterEntity;
 import org.apache.skywalking.oap.server.core.analysis.meter.MeterSystem;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.AcceptableValue;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgFunction;
@@ -31,25 +30,32 @@ import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgHist
 import org.apache.skywalking.oap.server.core.analysis.meter.function.avg.AvgLabeledFunction;
 import org.apache.skywalking.oap.server.core.analysis.metrics.IntList;
 import org.apache.skywalking.oap.server.core.analysis.worker.MetricsStreamProcessor;
+import org.apache.skywalking.oap.server.core.config.NamingControl;
+import org.apache.skywalking.oap.server.core.config.group.EndpointNameGrouping;
 import org.apache.skywalking.oap.server.core.storage.StorageException;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.Mockito;
-import org.mockito.junit.MockitoJUnitRunner;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.powermock.reflect.Whitebox;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import static com.google.common.collect.ImmutableMap.of;
-import static org.hamcrest.core.Is.is;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.spy;
 
-@RunWith(MockitoJUnitRunner.Silent.class)
+@ExtendWith(MockitoExtension.class)
 public class AnalyzerTest {
 
     @Mock
@@ -57,7 +63,7 @@ public class AnalyzerTest {
     private MeterSystem meterSystem;
     private Analyzer analyzer;
 
-    @Before
+    @BeforeEach
     public void setup() throws StorageException {
         meterSystem = spy(new MeterSystem(moduleManager));
         Whitebox.setInternalState(MetricsStreamProcessor.class, "PROCESSOR",
@@ -67,20 +73,32 @@ public class AnalyzerTest {
 
     }
 
+    @BeforeAll
+    public static void init() {
+        MeterEntity.setNamingControl(
+            new NamingControl(512, 512, 512, new EndpointNameGrouping()));
+    }
+
+    @AfterAll
+    public static void tearDown() {
+        MeterEntity.setNamingControl(null);
+    }
+
     @Test
     public void testSingle() {
         analyzer = Analyzer.build(
             "sum_service_instance",
-            "http_success_request.sum(['region', 'idc']).instance(['idc'] , ['region'])",
+            null,
+            "http_success_request.sum(['region', 'idc']).instance(['idc'] , ['region'], Layer.GENERAL)",
             meterSystem
         );
         ImmutableMap<String, SampleFamily> input = ImmutableMap.of(
             "http_success_request", SampleFamilyBuilder.newBuilder(
                 Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).build(),
-                Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).build(),
-                Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).name("http_success_request").build()
             ).build()
         );
 
@@ -100,30 +118,31 @@ public class AnalyzerTest {
         AvgFunction t3Cn = actValues.get(IDManager.ServiceInstanceID.buildId(
             IDManager.ServiceID.buildId("t3", true), "cn"));
 
-        Assert.assertEquals(50L, t1.getSummation(), 0.0);
-        Assert.assertEquals(1L, t1.getCount(), 0.0);
+        assertEquals(50L, t1.getSummation(), 0.0);
+        assertEquals(1L, t1.getCount(), 0.0);
 
-        Assert.assertEquals(150L, t1Us.getSummation(), 0.0);
-        Assert.assertEquals(1L, t1Us.getCount(), 0.0);
+        assertEquals(150L, t1Us.getSummation(), 0.0);
+        assertEquals(1L, t1Us.getCount(), 0.0);
 
-        Assert.assertEquals(54L, t3Cn.getSummation(), 0.0);
-        Assert.assertEquals(1L, t3Cn.getCount(), 0.0);
+        assertEquals(54L, t3Cn.getSummation(), 0.0);
+        assertEquals(1L, t3Cn.getCount(), 0.0);
     }
 
     @Test
     public void testLabeled() {
         analyzer = Analyzer.build(
             "sum_service_instance_labels",
-            "http_success_request.sum(['region', 'idc' , 'instance']).instance(['idc'] , ['region'])",
+            null,
+            "http_success_request.sum(['region', 'idc' , 'instance']).instance(['idc'] , ['region'], Layer.GENERAL)",
             meterSystem
         );
         ImmutableMap<String, SampleFamily> input = ImmutableMap.of(
             "http_success_request", SampleFamilyBuilder.newBuilder(
                 Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).build(),
-                Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).build(),
-                Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).name("http_success_request").build(),
+                Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).name("http_success_request").build()
             ).build()
         );
 
@@ -144,25 +163,26 @@ public class AnalyzerTest {
         AvgLabeledFunction t3Cn = actValues.get(IDManager.ServiceInstanceID.buildId(
             IDManager.ServiceID.buildId("t3", true), "cn"));
 
-        Assert.assertEquals(50L, t1.getSummation().get(""), 0.0);
-        Assert.assertEquals(1L, t1.getCount().get(""), 0.0);
+        assertEquals(50L, t1.getSummation().get(""), 0.0);
+        assertEquals(1L, t1.getCount().get(""), 0.0);
 
-        Assert.assertEquals(50L, t1Us.getSummation().get(""), 0.0);
-        Assert.assertEquals(100L, t1Us.getSummation().get("10.0.0.1"), 0.0);
-        Assert.assertEquals(1L, t1Us.getCount().get(""), 0.0);
-        Assert.assertEquals(1L, t1Us.getCount().get("10.0.0.1"), 0.0);
+        assertEquals(50L, t1Us.getSummation().get(""), 0.0);
+        assertEquals(100L, t1Us.getSummation().get("10.0.0.1"), 0.0);
+        assertEquals(1L, t1Us.getCount().get(""), 0.0);
+        assertEquals(1L, t1Us.getCount().get("10.0.0.1"), 0.0);
 
-        Assert.assertEquals(51L, t3Cn.getSummation().get(""), 0.0);
-        Assert.assertEquals(3L, t3Cn.getSummation().get("10.0.0.1"), 0.0);
-        Assert.assertEquals(1L, t3Cn.getCount().get(""), 0.0);
-        Assert.assertEquals(1L, t3Cn.getCount().get("10.0.0.1"), 0.0);
+        assertEquals(51L, t3Cn.getSummation().get(""), 0.0);
+        assertEquals(3L, t3Cn.getSummation().get("10.0.0.1"), 0.0);
+        assertEquals(1L, t3Cn.getCount().get(""), 0.0);
+        assertEquals(1L, t3Cn.getCount().get("10.0.0.1"), 0.0);
     }
 
     @Test
     public void testHistogramPercentile() {
         analyzer = Analyzer.build(
             "instance_cpu_percentage",
-            "instance_cpu_percentage.sum(['le' , 'service' , 'instance']).histogram().histogram_percentile([75,99]).service(['service'])",
+            null,
+            "instance_cpu_percentage.sum(['le' , 'service' , 'instance']).histogram().histogram_percentile([75,99]).service(['service'], Layer.GENERAL)",
             meterSystem
         );
         ImmutableMap<String, SampleFamily> input = ImmutableMap.of(
@@ -170,20 +190,17 @@ public class AnalyzerTest {
                 Sample.builder()
                       .labels(of("le", "0.025", "service", "service1", "instance", "instance1"))
                       .value(100)
+                      .name("instance_cpu_percentage")
                       .build(),
                 Sample.builder()
                       .labels(of("le", "1.25", "service", "service1", "instance", "instance1"))
                       .value(300)
+                      .name("instance_cpu_percentage")
                       .build(),
                 Sample.builder()
                       .labels(of("le", "0.75", "service", "service1", "instance", "instance2"))
                       .value(122)
-                      .build(),
-                Sample.builder()
-                      .labels(of("le", String.valueOf(Integer.MAX_VALUE), "service", "service1", "instance",
-                                 "instance2"
-                      ))
-                      .value(410)
+                      .name("instance_cpu_percentage")
                       .build()
             ).build()
         );
@@ -192,17 +209,16 @@ public class AnalyzerTest {
         doAnswer(invocationOnMock -> {
             AvgHistogramPercentileFunction actValue = (AvgHistogramPercentileFunction) invocationOnMock.getArgument(
                 0, AcceptableValue.class);
-            if (actValue.getSummation().hasKey("instance1:0")) {
+            if (actValue.getSummation().hasKey("instance1:25")) {
                 actValues.put("instance1", actValue);
             } else {
                 actValues.put("instance2", actValue);
-
             }
             return null;
         }).when(meterSystem).doStreamingCalculation(any());
 
         analyzer.analyse(input);
-        Assert.assertEquals(2, actValues.size());
+        assertEquals(2, actValues.size());
         String expServiceId = IDManager.ServiceID.buildId("service1", true);
         IntList expRanks = new IntList(2) {
             {
@@ -211,20 +227,18 @@ public class AnalyzerTest {
             }
         };
         actValues.forEach((key, actValue) -> {
-            Assert.assertEquals(expServiceId, actValue.getEntityId());
-            Assert.assertThat(expRanks, is(actValue.getRanks()));
+            assertEquals(expServiceId, actValue.getEntityId());
+            assertThat(expRanks).isEqualTo(actValue.getRanks());
 
         });
         AvgHistogramPercentileFunction instance1 = actValues.get("instance1");
         AvgHistogramPercentileFunction instance2 = actValues.get("instance2");
-        Assert.assertEquals(100L, instance1.getSummation().get("instance1:0"), 0.0);
-        Assert.assertEquals(178L, instance1.getSummation().get("instance1:750"), 0.0);
-        Assert.assertEquals(1L, instance1.getCount().get("instance1:0"), 0.0);
-        Assert.assertEquals(1L, instance1.getCount().get("instance1:750"), 0.0);
+        assertEquals(100L, instance1.getSummation().get("instance1:25"), 0.0);
+        assertEquals(300L, instance1.getSummation().get("instance1:1250"), 0.0);
+        assertEquals(1L, instance1.getCount().get("instance1:25"), 0.0);
+        assertEquals(1L, instance1.getCount().get("instance1:1250"), 0.0);
 
-        Assert.assertEquals(22L, instance2.getSummation().get("instance2:25"), 0.0);
-        Assert.assertEquals(110L, instance2.getSummation().get("instance2:1250"), 0.0);
-        Assert.assertEquals(1L, instance2.getCount().get("instance2:25"), 0.0);
-        Assert.assertEquals(1L, instance2.getCount().get("instance2:1250"), 0.0);
+        assertEquals(122L, instance2.getSummation().get("instance2:750"), 0.0);
+        assertEquals(1L, instance2.getCount().get("instance2:750"), 0.0);
     }
 }

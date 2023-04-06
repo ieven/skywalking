@@ -21,10 +21,12 @@ package org.apache.skywalking.oap.log.analyzer.dsl.spec.extractor;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import groovy.lang.Closure;
+import groovy.lang.DelegatesTo;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.experimental.Delegate;
 import org.apache.commons.lang3.StringUtils;
@@ -32,34 +34,67 @@ import org.apache.skywalking.apm.network.common.v3.KeyStringValuePair;
 import org.apache.skywalking.apm.network.logging.v3.LogData;
 import org.apache.skywalking.apm.network.logging.v3.TraceContext;
 import org.apache.skywalking.oap.log.analyzer.dsl.spec.AbstractSpec;
+import org.apache.skywalking.oap.log.analyzer.dsl.spec.extractor.sampledtrace.SampledTraceSpec;
+import org.apache.skywalking.oap.log.analyzer.dsl.spec.extractor.slowsql.SlowSqlSpec;
 import org.apache.skywalking.oap.log.analyzer.provider.LogAnalyzerModuleConfig;
 import org.apache.skywalking.oap.meter.analyzer.MetricConvert;
 import org.apache.skywalking.oap.meter.analyzer.dsl.Sample;
 import org.apache.skywalking.oap.meter.analyzer.dsl.SampleFamily;
 import org.apache.skywalking.oap.meter.analyzer.dsl.SampleFamilyBuilder;
+import org.apache.skywalking.oap.server.analyzer.provider.trace.parser.listener.DatabaseSlowStatementBuilder;
+import org.apache.skywalking.oap.server.analyzer.provider.trace.parser.listener.SampledTraceBuilder;
 import org.apache.skywalking.oap.server.core.CoreModule;
+import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
+import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.apache.skywalking.oap.server.core.analysis.meter.MeterSystem;
+import org.apache.skywalking.oap.server.core.analysis.record.Record;
+import org.apache.skywalking.oap.server.core.analysis.worker.RecordStreamProcessor;
+import org.apache.skywalking.oap.server.core.config.NamingControl;
+import org.apache.skywalking.oap.server.core.source.ISource;
+import org.apache.skywalking.oap.server.core.source.ServiceMeta;
+import org.apache.skywalking.oap.server.core.source.SourceReceiver;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.library.module.ModuleStartException;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static java.util.Objects.nonNull;
-import static org.apache.skywalking.apm.util.StringUtil.isNotBlank;
+import static org.apache.skywalking.oap.server.library.util.StringUtil.isNotBlank;
 
 public class ExtractorSpec extends AbstractSpec {
+    private static final Logger LOGGER = LoggerFactory.getLogger(SlowSqlSpec.class);
 
     private final List<MetricConvert> metricConverts;
+
+    private final SlowSqlSpec slowSql;
+    private final SampledTraceSpec sampledTrace;
+
+    private final NamingControl namingControl;
+
+    private final SourceReceiver sourceReceiver;
 
     public ExtractorSpec(final ModuleManager moduleManager,
                          final LogAnalyzerModuleConfig moduleConfig) throws ModuleStartException {
         super(moduleManager, moduleConfig);
 
-        final MeterSystem meterSystem = moduleManager.find(CoreModule.NAME).provider().getService(MeterSystem.class);
+        final MeterSystem meterSystem =
+            moduleManager.find(CoreModule.NAME).provider().getService(MeterSystem.class);
 
         metricConverts = moduleConfig.malConfigs()
                                      .stream()
                                      .map(it -> new MetricConvert(it, meterSystem))
                                      .collect(Collectors.toList());
+
+        slowSql = new SlowSqlSpec(moduleManager(), moduleConfig());
+        sampledTrace = new SampledTraceSpec(moduleManager(), moduleConfig());
+
+        namingControl = moduleManager.find(CoreModule.NAME)
+                                     .provider()
+                                     .getService(NamingControl.class);
+
+        sourceReceiver = moduleManager.find(CoreModule.NAME).provider().getService(SourceReceiver.class);
     }
 
     @SuppressWarnings("unused")
@@ -93,7 +128,7 @@ public class ExtractorSpec extends AbstractSpec {
     }
 
     @SuppressWarnings("unused")
-    public void tag(final Map<String, Object> kv) {
+    public void tag(final Map<String, ?> kv) {
         if (BINDING.get().shouldAbort()) {
             return;
         }
@@ -108,7 +143,8 @@ public class ExtractorSpec extends AbstractSpec {
                        kv.entrySet()
                          .stream()
                          .filter(it -> isNotBlank(it.getKey()))
-                         .filter(it -> nonNull(it.getValue()) && isNotBlank(Objects.toString(it.getValue())))
+                         .filter(it -> nonNull(it.getValue()) &&
+                             isNotBlank(Objects.toString(it.getValue())))
                          .map(it -> {
                              final Object val = it.getValue();
                              String valStr = Objects.toString(val);
@@ -176,7 +212,18 @@ public class ExtractorSpec extends AbstractSpec {
     }
 
     @SuppressWarnings("unused")
-    public void metrics(final Closure<Void> cl) {
+    public void layer(final String layer) {
+        if (BINDING.get().shouldAbort()) {
+            return;
+        }
+        if (nonNull(layer)) {
+            final LogData.Builder logData = BINDING.get().log();
+            logData.setLayer(layer);
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void metrics(@DelegatesTo(SampleBuilder.class) final Closure<?> cl) {
         if (BINDING.get().shouldAbort()) {
             return;
         }
@@ -185,12 +232,87 @@ public class ExtractorSpec extends AbstractSpec {
         cl.call();
 
         final Sample sample = builder.build();
+        final SampleFamily sampleFamily = SampleFamilyBuilder.newBuilder(sample).build();
 
-        metricConverts.forEach(it -> it.toMeter(
-            ImmutableMap.<String, SampleFamily>builder()
-                .put(sample.getName(), SampleFamilyBuilder.newBuilder(sample).build())
-                .build()
-        ));
+        final Optional<List<SampleFamily>> possibleMetricsContainer = BINDING.get().metricsContainer();
+
+        if (possibleMetricsContainer.isPresent()) {
+            possibleMetricsContainer.get().add(sampleFamily);
+        } else {
+            metricConverts.forEach(it -> it.toMeter(
+                ImmutableMap.<String, SampleFamily>builder()
+                            .put(sample.getName(), sampleFamily)
+                            .build()
+            ));
+        }
+    }
+
+    @SuppressWarnings("unused")
+    public void slowSql(@DelegatesTo(SlowSqlSpec.class) final Closure<?> cl) {
+        if (BINDING.get().shouldAbort()) {
+            return;
+        }
+        LogData.Builder log = BINDING.get().log();
+        if (log.getLayer() == null
+            || log.getService() == null
+            || log.getTimestamp() < 1) {
+            LOGGER.warn("SlowSql extracts failed, maybe something is not configured.");
+            return;
+        }
+        DatabaseSlowStatementBuilder builder = new DatabaseSlowStatementBuilder(namingControl);
+        builder.setLayer(Layer.nameOf(log.getLayer()));
+
+        builder.setServiceName(log.getService());
+
+        BINDING.get().databaseSlowStatement(builder);
+
+        cl.setDelegate(slowSql);
+        cl.call();
+
+        if (builder.getId() == null
+            || builder.getLatency() < 1
+            || builder.getStatement() == null) {
+            LOGGER.warn("SlowSql extracts failed, maybe something is not configured.");
+            return;
+        }
+
+        long timeBucketForDB = TimeBucket.getTimeBucket(log.getTimestamp(), DownSampling.Second);
+        builder.setTimeBucket(timeBucketForDB);
+        builder.setTimestamp(log.getTimestamp());
+
+        builder.prepare();
+        sourceReceiver.receive(builder.toDatabaseSlowStatement());
+
+        ServiceMeta serviceMeta = new ServiceMeta();
+        serviceMeta.setName(builder.getServiceName());
+        serviceMeta.setLayer(builder.getLayer());
+        long timeBucket = TimeBucket.getTimeBucket(log.getTimestamp(), DownSampling.Minute);
+        serviceMeta.setTimeBucket(timeBucket);
+        sourceReceiver.receive(serviceMeta);
+    }
+
+    @SuppressWarnings("unused")
+    public void sampledTrace(@DelegatesTo(SampledTraceSpec.class) final Closure<?> cl) {
+        if (BINDING.get().shouldAbort()) {
+            return;
+        }
+        LogData.Builder log = BINDING.get().log();
+        SampledTraceBuilder builder = new SampledTraceBuilder(namingControl);
+        builder.setLayer(log.getLayer());
+        builder.setTimestamp(log.getTimestamp());
+        builder.setServiceName(log.getService());
+        builder.setServiceInstanceName(log.getServiceInstance());
+        builder.setTraceId(log.getTraceContext().getTraceId());
+        BINDING.get().sampledTrace(builder);
+
+        cl.setDelegate(sampledTrace);
+        cl.call();
+
+        builder.validate();
+        final Record record = builder.toRecord();
+        final ISource entity = builder.toEntity();
+        RecordStreamProcessor.getInstance().in(record);
+        sourceReceiver.receive(entity);
     }
 
     public static class SampleBuilder {
@@ -198,11 +320,17 @@ public class ExtractorSpec extends AbstractSpec {
         private final Sample.SampleBuilder sampleBuilder = Sample.builder();
 
         @SuppressWarnings("unused")
-        public Sample.SampleBuilder labels(final Map<String, String> labels) {
-            final Map<String, String> filtered = labels.entrySet()
-                                                       .stream()
-                                                       .filter(it -> isNotBlank(it.getKey()) && isNotBlank(it.getValue()))
-                                                       .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        public Sample.SampleBuilder labels(final Map<String, ?> labels) {
+            final Map<String, String> filtered =
+                labels.entrySet()
+                      .stream()
+                      .filter(it -> isNotBlank(it.getKey()) && nonNull(it.getValue()))
+                      .collect(
+                          Collectors.toMap(
+                              Map.Entry::getKey,
+                              it -> Objects.toString(it.getValue())
+                          )
+                      );
             return sampleBuilder.labels(ImmutableMap.copyOf(filtered));
         }
     }

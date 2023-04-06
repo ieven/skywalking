@@ -36,9 +36,12 @@ import javassist.NotFoundException;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.JavaVersion;
+import org.apache.commons.lang3.SystemUtils;
 import org.apache.skywalking.oap.server.core.UnexpectedException;
 import org.apache.skywalking.oap.server.core.analysis.StreamDefinition;
 import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
+import org.apache.skywalking.oap.server.core.analysis.meter.dynamic.MeterClassPackageHolder;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.AcceptableValue;
 import org.apache.skywalking.oap.server.core.analysis.meter.function.MeterFunction;
 import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
@@ -58,7 +61,7 @@ public class MeterSystem implements Service {
     private static final String METER_CLASS_PACKAGE = "org.apache.skywalking.oap.server.core.analysis.meter.dynamic.";
     private ModuleManager manager;
     private ClassPool classPool;
-    private Map<String, Class<? extends MeterFunction>> functionRegister = new HashMap<>();
+    private Map<String, Class<? extends AcceptableValue>> functionRegister = new HashMap<>();
     /**
      * Host the dynamic meter prototype classes. These classes could be create dynamically through {@link
      * Object#clone()} in the runtime;
@@ -87,7 +90,7 @@ public class MeterSystem implements Service {
                 }
                 functionRegister.put(
                     metricsFunction.functionName(),
-                    (Class<? extends MeterFunction>) functionClass
+                    (Class<? extends AcceptableValue>) functionClass
                 );
             }
         }
@@ -103,9 +106,9 @@ public class MeterSystem implements Service {
      * @throws UnexpectedException      if binary code manipulation fails or stream core failure.
      */
     public synchronized <T> void create(String metricsName,
-        String functionName,
-        ScopeType type) throws IllegalArgumentException {
-        final Class<? extends MeterFunction> meterFunction = functionRegister.get(functionName);
+                                        String functionName,
+                                        ScopeType type) throws IllegalArgumentException {
+        final Class<? extends AcceptableValue> meterFunction = functionRegister.get(functionName);
 
         if (meterFunction == null) {
             throw new IllegalArgumentException("Function " + functionName + " can't be found.");
@@ -138,13 +141,13 @@ public class MeterSystem implements Service {
      * @throws UnexpectedException      if binary code manipulation fails or stream core failure.
      */
     public synchronized <T> void create(String metricsName,
-                                           String functionName,
-                                           ScopeType type,
-                                           Class<T> dataType) throws IllegalArgumentException {
+                                        String functionName,
+                                        ScopeType type,
+                                        Class<T> dataType) throws IllegalArgumentException {
         /**
          * Create a new meter class dynamically.
          */
-        final Class<? extends MeterFunction> meterFunction = functionRegister.get(functionName);
+        final Class<? extends AcceptableValue> meterFunction = functionRegister.get(functionName);
 
         if (meterFunction == null) {
             throw new IllegalArgumentException("Function " + functionName + " can't be found.");
@@ -191,11 +194,13 @@ public class MeterSystem implements Service {
          */
         try {
             CtClass existingMetric = classPool.get(METER_CLASS_PACKAGE + className);
-            if (existingMetric.getSuperclass() != parentClass || type != meterPrototypes.get(metricsName).getScopeType()) {
-                throw new IllegalArgumentException(metricsName + " has been defined, but calculate function or/are scope type is/are different.");
+            if (existingMetric.getSuperclass() != parentClass || type != meterPrototypes.get(metricsName)
+                                                                                        .getScopeType()) {
+                throw new IllegalArgumentException(
+                    metricsName + " has been defined, but calculate function or/are scope type is/are different.");
             }
             log.info("Metric {} is already defined, so skip the metric creation.", metricsName);
-            return ;
+            return;
         } catch (NotFoundException e) {
         }
 
@@ -220,7 +225,9 @@ public class MeterSystem implements Service {
             metricsClass.addMethod(CtNewMethod.make(
                 ""
                     + "public org.apache.skywalking.oap.server.core.analysis.meter.function.AcceptableValue createNew() {"
-                    + "    return new " + METER_CLASS_PACKAGE + className + "();"
+                    + "    org.apache.skywalking.oap.server.core.analysis.meter.function.AcceptableValue meterVar = new " + METER_CLASS_PACKAGE + className + "();"
+                    + "    ((org.apache.skywalking.oap.server.core.analysis.meter.Meter)meterVar).initMeta(\"" + metricsName + "\", " + type.getScopeId() + ");"
+                    + "    return meterVar;"
                     + " }"
                 , metricsClass));
         } catch (CannotCompileException e) {
@@ -230,7 +237,11 @@ public class MeterSystem implements Service {
 
         Class targetClass;
         try {
-            targetClass = metricsClass.toClass(MeterSystem.class.getClassLoader(), null);
+            if (SystemUtils.isJavaVersionAtMost(JavaVersion.JAVA_1_8)) {
+                targetClass = metricsClass.toClass(MeterSystem.class.getClassLoader(), null);
+            } else {
+                targetClass = metricsClass.toClass(MeterClassPackageHolder.class);
+            }
             AcceptableValue prototype = (AcceptableValue) targetClass.newInstance();
             meterPrototypes.put(metricsName, new MeterDefinition(type, prototype, dataType));
 

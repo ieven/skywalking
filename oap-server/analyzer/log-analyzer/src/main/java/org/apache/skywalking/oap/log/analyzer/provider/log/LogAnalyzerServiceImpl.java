@@ -17,33 +17,46 @@
 
 package org.apache.skywalking.oap.log.analyzer.provider.log;
 
+import com.google.protobuf.Message;
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.apm.network.logging.v3.LogData;
 import org.apache.skywalking.oap.log.analyzer.provider.LogAnalyzerModuleConfig;
 import org.apache.skywalking.oap.log.analyzer.provider.log.listener.LogAnalysisListenerFactory;
+import org.apache.skywalking.oap.log.analyzer.provider.log.listener.LogSinkListenerFactory;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 
 @RequiredArgsConstructor
-public class LogAnalyzerServiceImpl implements ILogAnalyzerService, ILogAnalysisListenerFactoryManager {
+public class LogAnalyzerServiceImpl implements ILogAnalyzerService, ILogAnalysisListenerManager {
     private final ModuleManager moduleManager;
     private final LogAnalyzerModuleConfig moduleConfig;
-    private final List<LogAnalysisListenerFactory> factories = new ArrayList<>();
+    private final List<LogAnalysisListenerFactory> analysisListenerFactories = new ArrayList<>();
+    private final List<LogSinkListenerFactory> sinkListenerFactories = new ArrayList<>();
 
     @Override
-    public void doAnalysis(final LogData.Builder log) {
+    public void doAnalysis(final LogData.Builder log, Message extraLog) {
         LogAnalyzer analyzer = new LogAnalyzer(moduleManager, moduleConfig, this);
-        analyzer.doAnalysis(log);
+        analyzer.doAnalysis(log, extraLog);
     }
 
     @Override
     public void addListenerFactory(final LogAnalysisListenerFactory factory) {
-        factories.add(factory);
+        analysisListenerFactories.add(factory);
     }
 
     @Override
     public List<LogAnalysisListenerFactory> getLogAnalysisListenerFactories() {
-        return factories;
+        return analysisListenerFactories;
+    }
+
+    @Override
+    public void addSinkListenerFactory(LogSinkListenerFactory factory) {
+        sinkListenerFactories.add(factory);
+    }
+
+    @Override
+    public List<LogSinkListenerFactory> getSinkListenerFactory() {
+        return sinkListenerFactories;
     }
 }

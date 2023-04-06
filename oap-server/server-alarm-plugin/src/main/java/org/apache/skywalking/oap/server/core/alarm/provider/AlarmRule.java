@@ -19,6 +19,7 @@
 package org.apache.skywalking.oap.server.core.alarm.provider;
 
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Objects;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -35,7 +36,6 @@ import lombok.ToString;
 @ToString
 public class AlarmRule {
     private String alarmRuleName;
-
     private String metricsName;
     private ArrayList<String> includeNames;
     private String includeNamesRegex;
@@ -52,6 +52,7 @@ public class AlarmRule {
     private int silencePeriod;
     private String message;
     private boolean onlyAsCondition;
+    private Map<String, String> tags;
 
     @Override
     public boolean equals(final Object o) {

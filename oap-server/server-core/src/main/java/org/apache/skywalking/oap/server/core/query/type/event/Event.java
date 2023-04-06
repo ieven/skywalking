@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.Data;
-import org.apache.skywalking.apm.util.StringUtil;
+import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.core.query.type.KeyValue;
 
 @Data
@@ -47,6 +47,8 @@ public class Event {
 
     private long endTime;
 
+    private String layer;
+
     public void setParameters(final List<KeyValue> parameters) {
         this.parameters = parameters;
     }
@@ -58,5 +60,4 @@ public class Event {
             this.parameters = map.entrySet().stream().map(e -> new KeyValue(e.getKey(), e.getValue())).collect(Collectors.toList());
         }
     }
-
 }

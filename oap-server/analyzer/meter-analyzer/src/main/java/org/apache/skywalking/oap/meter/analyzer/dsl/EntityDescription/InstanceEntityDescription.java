@@ -19,12 +19,15 @@
 package org.apache.skywalking.oap.meter.analyzer.dsl.EntityDescription;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
 import org.apache.skywalking.oap.server.core.analysis.meter.ScopeType;
+import groovy.lang.Closure;
 
 @Getter
 @RequiredArgsConstructor
@@ -33,14 +36,13 @@ public class InstanceEntityDescription implements EntityDescription {
     private final ScopeType scopeType = ScopeType.SERVICE_INSTANCE;
     private final List<String> serviceKeys;
     private final List<String> instanceKeys;
+    private final Layer layer;
+    private final String serviceDelimiter;
+    private final String instanceDelimiter;
+    private final Closure<Map<String, String>> propertiesExtractor;
 
     @Override
     public List<String> getLabelKeys() {
         return Stream.concat(this.serviceKeys.stream(), this.instanceKeys.stream()).collect(Collectors.toList());
-    }
-
-    @Override
-    public List<String> getEndpointKeys() {
-        throw new UnsupportedOperationException("Unsupported Operation of getEndpointKeys() " + this.toString());
     }
 }

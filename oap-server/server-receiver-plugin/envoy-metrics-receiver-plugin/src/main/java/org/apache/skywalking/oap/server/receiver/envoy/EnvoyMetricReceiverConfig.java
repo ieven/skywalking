@@ -19,6 +19,8 @@
 package org.apache.skywalking.oap.server.receiver.envoy;
 
 import com.google.common.base.Strings;
+
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -28,15 +30,19 @@ import org.apache.skywalking.oap.meter.analyzer.prometheus.rule.Rule;
 import org.apache.skywalking.oap.meter.analyzer.prometheus.rule.Rules;
 import org.apache.skywalking.oap.server.library.module.ModuleConfig;
 import org.apache.skywalking.oap.server.library.module.ModuleStartException;
+import org.apache.skywalking.oap.server.receiver.envoy.metrics.adapters.ClusterManagerMetricsAdapter;
 
 public class EnvoyMetricReceiverConfig extends ModuleConfig {
     @Getter
     private boolean acceptMetricsService = false;
     private String alsHTTPAnalysis;
+    private String alsTCPAnalysis;
     @Getter
     private String k8sServiceNameRule;
 
     private final ServiceMetaInfoFactory serviceMetaInfoFactory = new ServiceMetaInfoFactoryImpl();
+    @Getter
+    private final ClusterManagerMetricsAdapter clusterManagerMetricsAdapter = new ClusterManagerMetricsAdapter(this);
 
     public List<String> getAlsHTTPAnalysis() {
         if (Strings.isNullOrEmpty(alsHTTPAnalysis)) {
@@ -45,8 +51,19 @@ public class EnvoyMetricReceiverConfig extends ModuleConfig {
         return Arrays.stream(alsHTTPAnalysis.trim().split(",")).map(String::trim).collect(Collectors.toList());
     }
 
+    public List<String> getAlsTCPAnalysis() {
+        if (Strings.isNullOrEmpty(alsTCPAnalysis)) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(alsTCPAnalysis.trim().split(",")).map(String::trim).collect(Collectors.toList());
+    }
+
     public List<Rule> rules() throws ModuleStartException {
-        return Rules.loadRules("envoy-metrics-rules", Collections.singletonList("envoy"));
+        try {
+            return Rules.loadRules("envoy-metrics-rules", Arrays.asList("envoy", "envoy-svc-relation"));
+        } catch (IOException e) {
+            throw new ModuleStartException("Failed to load envoy-metrics-rules", e);
+        }
     }
 
     public ServiceMetaInfoFactory serviceMetaInfoFactory() {

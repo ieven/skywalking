@@ -20,64 +20,44 @@ package org.apache.skywalking.oap.meter.analyzer.dsl;
 
 import com.google.common.collect.ImmutableMap;
 import lombok.extern.slf4j.Slf4j;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.Arrays;
 import java.util.Collection;
 
 import static com.google.common.collect.ImmutableMap.of;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.fail;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @Slf4j
-@RunWith(Parameterized.class)
 public class AggregationTest {
-
-    @Parameterized.Parameter
-    public String name;
-
-    @Parameterized.Parameter(1)
-    public ImmutableMap<String, SampleFamily> input;
-
-    @Parameterized.Parameter(2)
-    public String expression;
-
-    @Parameterized.Parameter(3)
-    public Result want;
-
-    @Parameterized.Parameter(4)
-    public boolean isThrow;
-
-    @Parameterized.Parameters(name = "{index}: {0}")
     public static Collection<Object[]> data() {
         return Arrays.asList(new Object[][] {
             {
                 "sum",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                        Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                        Sample.builder().labels(of("idc", "t2")).value(3).build()
+                        Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                        Sample.builder().labels(of("idc", "t2")).value(3).name("http_success_request").build()
                     ).build()),
                 "http_success_request.sum()",
-                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(53).build()).build()),
+                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(53).name("http_success_request").build()).build()),
                 false,
             },
             {
                 "sum-by",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).name("http_success_request").value(50).build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).name("http_success_request").value(3).build()
                 ).build()),
                 "http_success_request.sum(by = ['region', 'idc'])",
                 Result.success(SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(53).build()
+                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(53).name("http_success_request").build()
                 ).build()),
                 false,
             },
@@ -85,57 +65,56 @@ public class AggregationTest {
             {
                 "min",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t3")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t2")).value(3).build()
+                    Sample.builder().labels(of("idc", "t3")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t2")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.min()",
-                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(3).build()).build()),
+                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(3).name("http_success_request").build()).build()),
                 false,
             },
             {
                 "min-by",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.min(by = ['region', 'idc'])",
                 Result.success(SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(3).build()
+                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(3).name("http_success_request").build()
                 ).build()),
                 false,
             },
-
             {
                 "max",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t3")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t2")).value(3).build()
+                    Sample.builder().labels(of("idc", "t3")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t2")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.max()",
-                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(100).build()).build()),
+                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(100).name("http_success_request").build()).build()),
                 false,
             },
             {
                 "max-by",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.max(by = ['region', 'idc'])",
                 Result.success(SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(50).build()
+                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(50).name("http_success_request").build()
                 ).build()),
                 false,
             },
@@ -143,36 +122,41 @@ public class AggregationTest {
             {
                 "avg",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t3")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t2")).value(3).build()
+                    Sample.builder().labels(of("idc", "t3")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t2")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.avg()",
-                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(51).build()).build()),
+                Result.success(SampleFamilyBuilder.newBuilder(Sample.builder().labels(ImmutableMap.of()).value(51).name("http_success_request").build()).build()),
                 false,
             },
             {
                 "avg-by",
                 of("http_success_request", SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).build()
+                    Sample.builder().labels(of("idc", "t1")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "svc", "catalog")).value(51).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "svc", "product")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us", "instance", "10.0.0.1")).value(100).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn", "instance", "10.0.0.1")).value(3).name("http_success_request").build()
                 ).build()),
                 "http_success_request.avg(by = ['region', 'idc'])",
                 Result.success(SampleFamilyBuilder.newBuilder(
-                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).build(),
-                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(75).build(),
-                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(27).build()
+                    Sample.builder().labels(of("idc", "t1", "region", "")).value(50).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t1", "region", "us")).value(75).name("http_success_request").build(),
+                    Sample.builder().labels(of("idc", "t3", "region", "cn")).value(27).name("http_success_request").build()
                 ).build()),
                 false,
             },
         });
     }
 
-    @Test
-    public void test() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("data")
+    public void test(String name,
+                     ImmutableMap<String, SampleFamily> input,
+                     String expression,
+                     Result want,
+                     boolean isThrow) {
         Expression e = DSL.parse(expression);
         Result r = null;
         try {
@@ -187,6 +171,6 @@ public class AggregationTest {
         if (isThrow) {
             fail("Should throw something");
         }
-        assertThat(r, is(want));
+        assertThat(r).isEqualTo(want);
     }
 }

@@ -18,17 +18,18 @@
 
 package org.apache.skywalking.oap.server.core.analysis.worker;
 
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.skywalking.apm.commons.datacarrier.DataCarrier;
-import org.apache.skywalking.apm.commons.datacarrier.consumer.IConsumer;
 import org.apache.skywalking.oap.server.core.analysis.data.LimitedSizeBufferedData;
 import org.apache.skywalking.oap.server.core.analysis.data.ReadWriteSafeCache;
 import org.apache.skywalking.oap.server.core.analysis.topn.TopN;
 import org.apache.skywalking.oap.server.core.storage.IRecordDAO;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.library.client.request.PrepareRequest;
+import org.apache.skywalking.oap.server.library.datacarrier.DataCarrier;
+import org.apache.skywalking.oap.server.library.datacarrier.consumer.IConsumer;
 import org.apache.skywalking.oap.server.library.module.ModuleDefineHolder;
 
 /**
@@ -61,18 +62,17 @@ public class TopNWorker extends PersistenceWorker<TopN> {
      * Force overriding the parent buildBatchRequests. Use its own report period.
      */
     @Override
-    public void buildBatchRequests(final List<PrepareRequest> prepareRequests) {
+    public List<PrepareRequest> buildBatchRequests() {
         long now = System.currentTimeMillis();
         if (now - lastReportTimestamp <= reportPeriod) {
             // Only do report in its own report period.
-            return;
+            return Collections.EMPTY_LIST;
         }
         lastReportTimestamp = now;
-        super.buildBatchRequests(prepareRequests);
-    }
 
-    @Override
-    public void prepareBatch(Collection<TopN> lastCollection, List<PrepareRequest> prepareRequests) {
+        final List<TopN> lastCollection = getCache().read();
+
+        List<PrepareRequest> prepareRequests = new ArrayList<>(lastCollection.size());
         lastCollection.forEach(record -> {
             try {
                 prepareRequests.add(recordDAO.prepareBatchInsert(model, record));
@@ -80,13 +80,14 @@ public class TopNWorker extends PersistenceWorker<TopN> {
                 log.error(t.getMessage(), t);
             }
         });
+        return prepareRequests;
     }
 
     /**
      * This method used to clear the expired cache, but TopN is not following it.
      */
     @Override
-    public void endOfRound(long tookTime) {
+    public void endOfRound() {
     }
 
     @Override
@@ -96,10 +97,6 @@ public class TopNWorker extends PersistenceWorker<TopN> {
 
     private class TopNConsumer implements IConsumer<TopN> {
         @Override
-        public void init() {
-        }
-
-        @Override
         public void consume(List<TopN> data) {
             TopNWorker.this.onWork(data);
         }
@@ -107,11 +104,6 @@ public class TopNWorker extends PersistenceWorker<TopN> {
         @Override
         public void onError(List<TopN> data, Throwable t) {
             log.error(t.getMessage(), t);
-        }
-
-        @Override
-        public void onExit() {
-
         }
     }
 }

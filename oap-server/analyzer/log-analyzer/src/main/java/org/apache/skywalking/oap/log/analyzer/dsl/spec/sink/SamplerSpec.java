@@ -19,33 +19,52 @@
 package org.apache.skywalking.oap.log.analyzer.dsl.spec.sink;
 
 import groovy.lang.Closure;
+import groovy.lang.DelegatesTo;
+import groovy.lang.GString;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.skywalking.oap.log.analyzer.dsl.spec.AbstractSpec;
+import org.apache.skywalking.oap.log.analyzer.dsl.spec.sink.sampler.PossibilitySampler;
 import org.apache.skywalking.oap.log.analyzer.dsl.spec.sink.sampler.RateLimitingSampler;
 import org.apache.skywalking.oap.log.analyzer.dsl.spec.sink.sampler.Sampler;
 import org.apache.skywalking.oap.log.analyzer.provider.LogAnalyzerModuleConfig;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 
 public class SamplerSpec extends AbstractSpec {
-    private final Map<String, Sampler> samplers;
+    private final Map<GString, Sampler> rateLimitSamplers;
+    private final Map<Integer, Sampler> possibilitySamplers;
     private final RateLimitingSampler.ResetHandler rlsResetHandler;
 
     public SamplerSpec(final ModuleManager moduleManager,
                        final LogAnalyzerModuleConfig moduleConfig) {
         super(moduleManager, moduleConfig);
 
-        samplers = new ConcurrentHashMap<>();
+        rateLimitSamplers = new ConcurrentHashMap<>();
+        possibilitySamplers = new ConcurrentHashMap<>();
         rlsResetHandler = new RateLimitingSampler.ResetHandler();
     }
 
     @SuppressWarnings("unused")
-    public void rateLimit(final String id, final Closure<Void> cl) {
+    public void rateLimit(final GString id, @DelegatesTo(RateLimitingSampler.class) final Closure<?> cl) {
         if (BINDING.get().shouldAbort()) {
             return;
         }
 
-        final Sampler sampler = samplers.computeIfAbsent(id, $ -> new RateLimitingSampler(rlsResetHandler).start());
+        final Sampler sampler = rateLimitSamplers.computeIfAbsent(id, $ -> new RateLimitingSampler(rlsResetHandler).start());
+
+        cl.setDelegate(sampler);
+        cl.call();
+
+        sampleWith(sampler);
+    }
+
+    @SuppressWarnings("unused")
+    public void possibility(final int percentage, @DelegatesTo(PossibilitySampler.class) final Closure<?> cl) {
+        if (BINDING.get().shouldAbort()) {
+            return;
+        }
+
+        final Sampler sampler = possibilitySamplers.computeIfAbsent(percentage, $ -> new PossibilitySampler(percentage).start());
 
         cl.setDelegate(sampler);
         cl.call();

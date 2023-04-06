@@ -20,11 +20,9 @@ package org.apache.skywalking.oap.server.receiver.envoy.als;
 
 import com.google.protobuf.Duration;
 import com.google.protobuf.Timestamp;
-import com.google.protobuf.UInt32Value;
 import io.envoyproxy.envoy.data.accesslog.v3.AccessLogCommon;
 import io.envoyproxy.envoy.data.accesslog.v3.HTTPAccessLogEntry;
 import io.envoyproxy.envoy.data.accesslog.v3.HTTPRequestProperties;
-import io.envoyproxy.envoy.data.accesslog.v3.HTTPResponseProperties;
 import io.envoyproxy.envoy.data.accesslog.v3.ResponseFlags;
 import io.envoyproxy.envoy.data.accesslog.v3.TLSProperties;
 import java.time.Instant;
@@ -32,24 +30,20 @@ import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.apm.network.common.v3.DetectPoint;
+import org.apache.skywalking.apm.network.common.v3.KeyStringValuePair;
+import org.apache.skywalking.apm.network.servicemesh.v3.HTTPServiceMeshMetric;
 import org.apache.skywalking.apm.network.servicemesh.v3.Protocol;
-import org.apache.skywalking.apm.network.servicemesh.v3.ServiceMeshMetric;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
-import static java.util.Optional.ofNullable;
+import static org.apache.skywalking.oap.server.core.Const.TLS_MODE.M_TLS;
+import static org.apache.skywalking.oap.server.core.Const.TLS_MODE.NON_TLS;
+import static org.apache.skywalking.oap.server.core.Const.TLS_MODE.TLS;
 
 /**
- * Adapt {@link HTTPAccessLogEntry} objects to {@link ServiceMeshMetric} builders.
+ * Adapt {@link HTTPAccessLogEntry} objects to {@link HTTPServiceMeshMetric} builders.
  */
 @RequiredArgsConstructor
 public class LogEntry2MetricsAdapter {
-
-    public static final String NON_TLS = "NONE";
-
-    public static final String M_TLS = "mTLS";
-
-    public static final String TLS = "TLS";
-
     /**
      * The access log entry that is to be adapted into metrics builders.
      */
@@ -60,11 +54,11 @@ public class LogEntry2MetricsAdapter {
     protected final ServiceMetaInfo targetService;
 
     /**
-     * Adapt the {@code entry} into a downstream metrics {@link ServiceMeshMetric.Builder}.
+     * Adapt the {@code entry} into a downstream metrics {@link HTTPServiceMeshMetric.Builder}.
      *
-     * @return the {@link ServiceMeshMetric.Builder} adapted from the given entry.
+     * @return the {@link HTTPServiceMeshMetric.Builder} adapted from the given entry.
      */
-    public ServiceMeshMetric.Builder adaptToDownstreamMetrics() {
+    public HTTPServiceMeshMetric.Builder adaptToDownstreamMetrics() {
         final AccessLogCommon properties = entry.getCommonProperties();
         final long startTime = formatAsLong(properties.getStartTime());
         final long duration = formatAsLong(properties.getTimeToLastDownstreamTxByte());
@@ -77,11 +71,11 @@ public class LogEntry2MetricsAdapter {
     }
 
     /**
-     * Adapt the {@code entry} into a upstream metrics {@link ServiceMeshMetric.Builder}.
+     * Adapt the {@code entry} into an upstream metrics {@link HTTPServiceMeshMetric.Builder}.
      *
-     * @return the {@link ServiceMeshMetric.Builder} adapted from the given entry.
+     * @return the {@link HTTPServiceMeshMetric.Builder} adapted from the given entry.
      */
-    public ServiceMeshMetric.Builder adaptToUpstreamMetrics() {
+    public HTTPServiceMeshMetric.Builder adaptToUpstreamMetrics() {
         final AccessLogCommon properties = entry.getCommonProperties();
         final long startTime = formatAsLong(properties.getStartTime());
         final long outboundStartTime = startTime + formatAsLong(properties.getTimeToFirstUpstreamTxByte());
@@ -94,25 +88,31 @@ public class LogEntry2MetricsAdapter {
             .setDetectPoint(DetectPoint.client);
     }
 
-    protected ServiceMeshMetric.Builder adaptCommonPart() {
+    public HTTPServiceMeshMetric.Builder adaptCommonPart() {
         final AccessLogCommon properties = entry.getCommonProperties();
         final String endpoint = endpoint();
-        final int responseCode = ofNullable(entry.getResponse()).map(HTTPResponseProperties::getResponseCode)
-                                                                .map(UInt32Value::getValue)
-                                                                .orElse(200);
-        final boolean status = responseCode >= 200 && responseCode < 400;
+        int responseCode = entry.getResponse().getResponseCode().getValue();
+        responseCode = responseCode > 0 ? responseCode : 200;
+        final boolean status = responseCode < 500;
         final Protocol protocol = requestProtocol(entry.getRequest());
         final String tlsMode = parseTLS(properties.getTlsProperties());
         final String internalErrorCode = parseInternalErrorCode(properties.getResponseFlags());
+        final long internalRequestLatencyNanos = properties.getTimeToFirstUpstreamTxByte().getNanos();
+        final long internalResponseLatencyNanos =
+            properties.getTimeToFirstDownstreamTxByte().getNanos()
+                - properties.getTimeToFirstUpstreamRxByte().getNanos();
 
-        final ServiceMeshMetric.Builder builder =
-            ServiceMeshMetric.newBuilder()
-                             .setEndpoint(endpoint)
-                             .setResponseCode(Math.toIntExact(responseCode))
-                             .setStatus(status)
-                             .setProtocol(protocol)
-                             .setTlsMode(tlsMode)
-                             .setInternalErrorCode(internalErrorCode);
+        final HTTPServiceMeshMetric.Builder builder =
+            HTTPServiceMeshMetric
+                .newBuilder()
+                .setEndpoint(endpoint)
+                .setResponseCode(Math.toIntExact(responseCode))
+                .setStatus(status)
+                .setProtocol(protocol)
+                .setTlsMode(tlsMode)
+                .setInternalErrorCode(internalErrorCode)
+                .setInternalRequestLatencyNanos(internalRequestLatencyNanos)
+                .setInternalResponseLatencyNanos(internalResponseLatencyNanos);
 
         Optional.ofNullable(sourceService)
                 .map(ServiceMetaInfo::getServiceName)
@@ -127,6 +127,26 @@ public class LogEntry2MetricsAdapter {
                 .map(ServiceMetaInfo::getServiceInstanceName)
                 .ifPresent(builder::setDestServiceInstance);
 
+        Optional
+            .ofNullable(sourceService)
+            .map(ServiceMetaInfo::getTags)
+            .ifPresent(tags -> {
+                tags.forEach(p -> {
+                    builder.addSourceInstanceProperties(
+                        KeyStringValuePair.newBuilder().setKey(p.getKey()).setValue(p.getValue()));
+                });
+            });
+
+        Optional
+            .ofNullable(targetService)
+            .map(ServiceMetaInfo::getTags)
+            .ifPresent(tags -> {
+                tags.forEach(p -> {
+                    builder.addDestInstanceProperties(
+                        KeyStringValuePair.newBuilder().setKey(p.getKey()).setValue(p.getValue()));
+                });
+            });
+
         return builder;
     }
 
@@ -139,15 +159,15 @@ public class LogEntry2MetricsAdapter {
         return method + ":" + request.getPath();
     }
 
-    protected static long formatAsLong(final Timestamp timestamp) {
+    public static long formatAsLong(final Timestamp timestamp) {
         return Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()).toEpochMilli();
     }
 
-    protected static long formatAsLong(final Duration duration) {
+    public static long formatAsLong(final Duration duration) {
         return Instant.ofEpochSecond(duration.getSeconds(), duration.getNanos()).toEpochMilli();
     }
 
-    protected static Protocol requestProtocol(final HTTPRequestProperties request) {
+    public static Protocol requestProtocol(final HTTPRequestProperties request) {
         if (request == null) {
             return Protocol.HTTP;
         }
@@ -158,19 +178,15 @@ public class LogEntry2MetricsAdapter {
         return Protocol.gRPC;
     }
 
-    protected static String parseTLS(final TLSProperties properties) {
+    public static String parseTLS(final TLSProperties properties) {
         if (properties == null) {
             return NON_TLS;
         }
-        TLSProperties.CertificateProperties lp = Optional
-            .ofNullable(properties.getLocalCertificateProperties())
-            .orElse(TLSProperties.CertificateProperties.newBuilder().build());
+        TLSProperties.CertificateProperties lp = properties.getLocalCertificateProperties();
         if (isNullOrEmpty(lp.getSubject()) && !hasSAN(lp.getSubjectAltNameList())) {
             return NON_TLS;
         }
-        TLSProperties.CertificateProperties pp = Optional
-            .ofNullable(properties.getPeerCertificateProperties())
-            .orElse(TLSProperties.CertificateProperties.newBuilder().build());
+        TLSProperties.CertificateProperties pp = properties.getPeerCertificateProperties();
         if (isNullOrEmpty(pp.getSubject()) && !hasSAN(pp.getSubjectAltNameList())) {
             return TLS;
         }
@@ -183,7 +199,7 @@ public class LogEntry2MetricsAdapter {
      * @param responseFlags in the ALS v2
      * @return empty string if no internal error code, or literal string representing the code.
      */
-    protected static String parseInternalErrorCode(final ResponseFlags responseFlags) {
+    public static String parseInternalErrorCode(final ResponseFlags responseFlags) {
         if (responseFlags != null) {
             if (responseFlags.getFailedLocalHealthcheck()) {
                 return "failed_local_healthcheck";

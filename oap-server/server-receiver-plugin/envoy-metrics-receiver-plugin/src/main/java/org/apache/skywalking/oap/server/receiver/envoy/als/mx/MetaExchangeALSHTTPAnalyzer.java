@@ -24,12 +24,12 @@ import io.envoyproxy.envoy.data.accesslog.v3.AccessLogCommon;
 import io.envoyproxy.envoy.data.accesslog.v3.HTTPAccessLogEntry;
 import io.envoyproxy.envoy.service.accesslog.v3.StreamAccessLogsMessage;
 import java.util.Base64;
-import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.skywalking.apm.network.servicemesh.v3.ServiceMeshMetric;
+import org.apache.skywalking.apm.network.servicemesh.v3.HTTPServiceMeshMetric;
+import org.apache.skywalking.apm.network.servicemesh.v3.HTTPServiceMeshMetrics;
+import org.apache.skywalking.apm.network.servicemesh.v3.ServiceMeshMetrics;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.library.module.ModuleStartException;
 import org.apache.skywalking.oap.server.receiver.envoy.EnvoyMetricReceiverConfig;
@@ -37,9 +37,7 @@ import org.apache.skywalking.oap.server.receiver.envoy.als.AbstractALSAnalyzer;
 import org.apache.skywalking.oap.server.receiver.envoy.als.Role;
 import org.apache.skywalking.oap.server.receiver.envoy.als.ServiceMetaInfo;
 
-import static org.apache.skywalking.oap.server.library.util.CollectionUtils.isNotEmpty;
-import static org.apache.skywalking.oap.server.receiver.envoy.als.LogEntry2MetricsAdapter.NON_TLS;
-import static org.apache.skywalking.oap.server.receiver.envoy.als.ServiceMetaInfo.UNKNOWN;
+import static org.apache.skywalking.oap.server.core.Const.TLS_MODE.NON_TLS;
 
 @Slf4j
 public class MetaExchangeALSHTTPAnalyzer extends AbstractALSAnalyzer {
@@ -68,31 +66,32 @@ public class MetaExchangeALSHTTPAnalyzer extends AbstractALSAnalyzer {
     }
 
     @Override
-    public List<ServiceMeshMetric.Builder> analysis(
-        final List<ServiceMeshMetric.Builder> result,
+    public Result analysis(
+        final Result previousResult,
         final StreamAccessLogsMessage.Identifier identifier,
         final HTTPAccessLogEntry entry,
         final Role role
     ) {
-        if (isNotEmpty(result)) {
-            return result;
+        if (previousResult.hasResult()) {
+            return previousResult;
         }
         if (!entry.hasCommonProperties()) {
-            return Collections.emptyList();
-        }
-        final AccessLogCommon properties = entry.getCommonProperties();
-        final Map<String, Any> stateMap = properties.getFilterStateObjectsMap();
-        if (stateMap.isEmpty()) {
-            return Collections.emptyList();
+            return previousResult;
         }
         final ServiceMetaInfo currSvc;
         try {
             currSvc = adaptToServiceMetaInfo(identifier);
         } catch (Exception e) {
             log.error("Failed to inflate the ServiceMetaInfo from identifier.node.metadata. ", e);
-            return Collections.emptyList();
+            return previousResult;
+        }
+        final AccessLogCommon properties = entry.getCommonProperties();
+        final Map<String, Any> stateMap = properties.getFilterStateObjectsMap();
+        if (stateMap.isEmpty()) {
+            return Result.builder().service(currSvc).build();
         }
 
+        final HTTPServiceMeshMetrics.Builder httpMetrics = HTTPServiceMeshMetrics.newBuilder();
         final AtomicBoolean downstreamExists = new AtomicBoolean();
         stateMap.forEach((key, value) -> {
             if (!key.equals(UPSTREAM_KEY) && !key.equals(DOWNSTREAM_KEY)) {
@@ -105,33 +104,33 @@ public class MetaExchangeALSHTTPAnalyzer extends AbstractALSAnalyzer {
                 log.error("Fail to parse metadata {} to FlatNode", Base64.getEncoder().encode(value.toByteArray()));
                 return;
             }
-            final ServiceMeshMetric.Builder metrics;
+            final HTTPServiceMeshMetric.Builder metrics;
             switch (key) {
                 case UPSTREAM_KEY:
                     metrics = newAdapter(entry, currSvc, svc).adaptToUpstreamMetrics().setTlsMode(NON_TLS);
                     if (log.isDebugEnabled()) {
                         log.debug("Transformed a {} outbound mesh metrics {}", role, TextFormat.shortDebugString(metrics));
                     }
-                    result.add(metrics);
+                    httpMetrics.addMetrics(metrics);
                     break;
                 case DOWNSTREAM_KEY:
                     metrics = newAdapter(entry, svc, currSvc).adaptToDownstreamMetrics();
                     if (log.isDebugEnabled()) {
                         log.debug("Transformed a {} inbound mesh metrics {}", role, TextFormat.shortDebugString(metrics));
                     }
-                    result.add(metrics);
+                    httpMetrics.addMetrics(metrics);
                     downstreamExists.set(true);
                     break;
             }
         });
         if (role.equals(Role.PROXY) && !downstreamExists.get()) {
-            final ServiceMeshMetric.Builder metric = newAdapter(entry, UNKNOWN, currSvc).adaptToDownstreamMetrics();
+            final HTTPServiceMeshMetric.Builder metric = newAdapter(entry, config.serviceMetaInfoFactory().unknown(), currSvc).adaptToDownstreamMetrics();
             if (log.isDebugEnabled()) {
                 log.debug("Transformed a {} inbound mesh metric {}", role, TextFormat.shortDebugString(metric));
             }
-            result.add(metric);
+            httpMetrics.addMetrics(metric);
         }
-        return result;
+        return Result.builder().metrics(ServiceMeshMetrics.newBuilder().setHttpMetrics(httpMetrics)).service(currSvc).build();
     }
 
     protected ServiceMetaInfo adaptToServiceMetaInfo(final Any value) throws Exception {

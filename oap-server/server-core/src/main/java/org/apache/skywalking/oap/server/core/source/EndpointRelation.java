@@ -21,7 +21,7 @@ package org.apache.skywalking.oap.server.core.source;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
-import org.apache.skywalking.oap.server.core.analysis.NodeType;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
 
 import static org.apache.skywalking.oap.server.core.source.DefaultScopeDefine.ENDPOINT_RELATION;
 import static org.apache.skywalking.oap.server.core.source.DefaultScopeDefine.ENDPOINT_RELATION_CATALOG_NAME;
@@ -52,8 +52,6 @@ public class EndpointRelation extends Source {
     @Setter
     @ScopeDefaultColumn.DefinedByField(columnName = "source_service_name", requireDynamicActive = true)
     private String serviceName;
-    @Setter
-    private NodeType serviceNodeType;
     @Getter
     @Setter
     private String serviceInstanceName;
@@ -67,8 +65,6 @@ public class EndpointRelation extends Source {
     @Getter
     @ScopeDefaultColumn.DefinedByField(columnName = "child_service_name", requireDynamicActive = true)
     private String childServiceName;
-    @Setter
-    private NodeType childServiceNodeType;
     @Getter
     @Setter
     private String childServiceInstanceName;
@@ -83,18 +79,27 @@ public class EndpointRelation extends Source {
     private boolean status;
     @Getter
     @Setter
-    private int responseCode;
+    private int httpResponseStatusCode;
+    @Getter
+    @Setter
+    private String rpcStatusCode;
     @Getter
     @Setter
     private RequestType type;
     @Getter
     @Setter
     private DetectPoint detectPoint;
+    @Getter
+    @Setter
+    private Layer serviceLayer;
+    @Getter
+    @Setter
+    private Layer childServiceLayer;
 
     @Override
     public void prepare() {
-        serviceId = IDManager.ServiceID.buildId(serviceName, serviceNodeType);
-        childServiceId = IDManager.ServiceID.buildId(childServiceName, childServiceNodeType);
+        serviceId = IDManager.ServiceID.buildId(serviceName, serviceLayer.isNormal());
+        childServiceId = IDManager.ServiceID.buildId(childServiceName, childServiceLayer.isNormal());
     }
 }
 
